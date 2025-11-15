@@ -1,4 +1,5 @@
 import matplotlib.pyplot as plt
+from matplotlib.ticker import MultipleLocator
 import pandas as pd
 import numpy as np
 
@@ -76,10 +77,25 @@ def parse_sentence_to_years(val) -> float:
     return float('nan')
 
 
+def find_severity_column(frame: pd.DataFrame) -> str:
+    candidates = [
+        'crimeseverityrating', 'CrimeSeverityRating', 'CRIMESEVERITYRATING',
+        'severity', 'Severity', 'SEVERITY'
+    ]
+    lower_cols = {c.lower(): c for c in frame.columns}
+    for cand in candidates:
+        if cand.lower() in lower_cols:
+            return lower_cols[cand.lower()]
+    for c in frame.columns:
+        if 'severity' in c.lower():
+            return c
+    raise ValueError("Could not find 'crimeseverityrating' column.")
+
+
 # Process data
 df = ensure_year_column(df)
 
-YEAR_START, YEAR_END = 2016, 2024
+YEAR_START, YEAR_END = 2016, 2023
 mask = (df['Year'] >= YEAR_START) & (df['Year'] <= YEAR_END)
 df_range = df.loc[mask].copy()
 
@@ -102,60 +118,31 @@ avg_sentence_by_year = (
     .reindex(years_index, fill_value=float('nan'))
 )
 
-# Process incident reports data
-def ensure_year_column_incidents(frame: pd.DataFrame) -> pd.DataFrame:
-    if 'Year' in frame.columns:
-        return frame
+# Process crime severity rating data from the first dataset
+# Find the crime severity rating column
+severity_col = find_severity_column(df_range)
 
-    # Prioritize dateofincident column
-    dateofincident_candidates = [
-        'dateofincident', 'DateOfIncident', 'DATEOFINCIDENT',
-        'date_of_incident', 'Date_Of_Incident', 'DATE_OF_INCIDENT'
-    ]
-    for col in dateofincident_candidates:
-        if col in frame.columns:
-            frame['Year'] = pd.to_datetime(frame[col], errors='coerce').dt.year
-            return frame
+# Convert to numeric; coerce invalid to NaN
+df_range['severity_value'] = pd.to_numeric(df_range[severity_col], errors='coerce')
 
-    # Fallback to other common incident date columns
-    incident_date_candidates = [
-        'incident_date', 'Incident_Date', 'INCIDENT_DATE',
-        'date', 'Date', 'DATE', 'occurred_date', 'Occurred_Date',
-        'timestamp', 'Timestamp', 'TIMESTAMP'
-    ]
-    for col in incident_date_candidates:
-        if col in frame.columns:
-            frame['Year'] = pd.to_datetime(frame[col], errors='coerce').dt.year
-            return frame
-
-    # Final fallback to year column
-    if 'year' in frame.columns:
-        frame['Year'] = pd.to_numeric(frame['year'], errors='coerce')
-        return frame
-
-    raise ValueError("Could not find 'dateofincident' column or other date columns in incident reports dataset.")
-
-df2 = ensure_year_column_incidents(df2)
-mask2 = (df2['Year'] >= YEAR_START) & (df2['Year'] <= YEAR_END)
-df2_range = df2.loc[mask2].copy()
-
-# Get incident reports count per year
-incident_counts = (
-    df2_range['Year']
-    .value_counts()
-    .reindex(years_index, fill_value=0)
-    .sort_index()
+# Calculate average crime severity rating per year
+avg_severity_by_year = (
+    df_range.groupby('Year')['severity_value']
+    .mean()
+    .reindex(years_index, fill_value=float('nan'))
 )
+
+print(f"Calculated average crime severity ratings for {len(avg_severity_by_year.dropna())} years")
 
 # Create triple y-axis line plot
 fig, ax1 = plt.subplots(figsize=(14, 8))
 
 # Plot incarcerated people count (left y-axis)
-color1 = 'blue'
+color1 = 'green'
 ax1.set_xlabel('Year')
 ax1.set_ylabel('Number of Incarcerated People', color=color1)
 line1 = ax1.plot(incarcerated_counts.index, incarcerated_counts.values, 
-                 color=color1, marker='o', linewidth=2, label='Incarcerated People')
+                 color=color1, marker='o', linewidth=5, label='Incarcerated People')
 ax1.tick_params(axis='y', labelcolor=color1)
 ax1.set_xlim(YEAR_START - 0.5, YEAR_END + 0.5)
 ax1.set_xticks(years_index)
@@ -165,33 +152,69 @@ ax2 = ax1.twinx()
 color2 = 'red'
 ax2.set_ylabel('Average Prison Sentence Duration (Years)', color=color2)
 line2 = ax2.plot(avg_sentence_by_year.index, avg_sentence_by_year.values, 
-                 color=color2, marker='s', linewidth=2, label='Average Sentence Duration')
+                 color=color2, marker='s', linewidth=5, label='Average Sentence Duration')
 ax2.tick_params(axis='y', labelcolor=color2)
 
-# Create third y-axis for incident reports
+# Create third y-axis for average crime severity rating
 ax3 = ax1.twinx()
 ax3.spines['right'].set_position(('outward', 60))  # Offset the third axis
-color3 = 'green'
-ax3.set_ylabel('Number of Reported Incidents', color=color3)
-line3 = ax3.plot(incident_counts.index, incident_counts.values, 
-                 color=color3, marker='^', linewidth=2, label='Reported Incidents')
-ax3.tick_params(axis='y', labelcolor=color3)
+color3 = 'blue'
+ax3.set_ylabel('Average Crime Severity Rating', color=color3)
+# Filter out NaN values for plotting
+severity_data_for_plot = avg_severity_by_year.dropna()
+if len(severity_data_for_plot) > 0:
+    line3 = ax3.plot(severity_data_for_plot.index, severity_data_for_plot.values, 
+                     color=color3, marker='^', linewidth=5, label='Average Crime Severity Rating')
+    
+    # Set custom y-axis tick spacing for crime severity rating
+    # Get current y-axis limits to calculate appropriate ticks
+    ax3.relim()  # Recalculate limits
+    ax3.autoscale()  # Auto-scale to fit data
+    ymin, ymax = ax3.get_ylim()
+    
+    # Set tick interval (adjust this value to change spacing)
+    # 0.2 = ticks every 0.2 units, 0.5 = ticks every 0.5 units, etc.
+    tick_interval = 0.2
+    
+    # Calculate tick positions
+    # Round down min and round up max to nice intervals
+    start_tick = np.floor(ymin / tick_interval) * tick_interval
+    end_tick = np.ceil(ymax / tick_interval) * tick_interval
+    custom_ticks = np.arange(start_tick, end_tick + tick_interval, tick_interval)
+    
+    # Apply custom ticks
+    ax3.set_yticks(custom_ticks)
+    ax3.set_ylim(start_tick, end_tick)
+    ax3.tick_params(axis='y', labelcolor=color3)
+else:
+    print("Warning: No valid crime severity data to plot")
+    line3 = None
+    ax3.tick_params(axis='y', labelcolor=color3)
 
 # Add title and legend
-plt.title('Travis County Crime & Incarceration Trends (2016-2024)\nIncarcerated People, Sentence Duration, and Reported Incidents', 
+plt.title('Travis County Crime & Incarceration Trends (2016-2023)\nIncarcerated People, Sentence Duration, and Crime Severity Rating', 
           fontsize=14, pad=20)
 
 # Combine legends from all three axes
 lines1, labels1 = ax1.get_legend_handles_labels()
 lines2, labels2 = ax2.get_legend_handles_labels()
-lines3, labels3 = ax3.get_legend_handles_labels()
-ax1.legend(lines1 + lines2 + lines3, labels1 + labels2 + labels3, loc='upper left')
+if len(severity_data_for_plot) > 0:
+    lines3, labels3 = ax3.get_legend_handles_labels()
+    ax1.legend(lines1 + lines2 + lines3, labels1 + labels2 + labels3, loc='upper center')
+else:
+    ax1.legend(lines1 + lines2, labels1 + labels2, loc='upper center')
 
 plt.tight_layout()
 
 # Save the plot
-output_path = "/Users/akhilkakarla/Desktop/OpenAustin/travis_county_incarceration_trends_2016_2024.png"
+output_path = "/Users/akhilkakarla/Desktop/OpenAustin/travis_county_incarceration_trends_with_crime_severity_2016_2023.png"
 plt.savefig(output_path, dpi=150, bbox_inches='tight')
 plt.close(fig)
 
-print(f"Saved dual line graph to {output_path}")
+print(f"\nSaved triple line graph to {output_path}")
+print(f"\nAverage crime severity ratings by year:")
+for year, severity in avg_severity_by_year.items():
+    if pd.notna(severity):
+        print(f"{year}: {severity:.4f}")
+    else:
+        print(f"{year}: No data available")

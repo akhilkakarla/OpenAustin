@@ -92,7 +92,7 @@ avg_by_year = (
 )
 
 fig, ax = plt.subplots(figsize=(10, 5))
-ax.bar(avg_by_year.index, avg_by_year.values, color="blue")
+ax.bar(avg_by_year.index, avg_by_year.values, color="red")
 ax.set_xlabel("Year")
 ax.set_ylabel("Average sentence (years)")
 ax.set_title("Average prison sentence per year in Travis County (2016–2023)")

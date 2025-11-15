@@ -58,7 +58,7 @@ year_counts = (
 
 # Plot
 fig, ax = plt.subplots(figsize=(10, 5))
-ax.bar(year_counts.index, year_counts.values, color="blue")
+ax.bar(year_counts.index, year_counts.values, color="green")
 ax.set_xlabel("Year")
 ax.set_ylabel("Count")
 ax.set_title("Counts of Incarcerated Individuals in Travis County per year (2016-2023)")
